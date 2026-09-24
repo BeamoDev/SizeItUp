@@ -9,6 +9,7 @@ return table.freeze({
 	Heart = "Heart",
 	InkSplat = "InkSplat",
 	Ready = "Ready",
+	LeaveSpectator = "LeaveSpectator",
 	ModeVote = "ModeVote",
 	ChatNews = "ChatNews",
 	PlayBot = "PlayBot",

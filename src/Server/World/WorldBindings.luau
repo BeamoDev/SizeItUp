@@ -178,6 +178,32 @@ function WorldBindings.TablePlacement(self: any, record: any): CFrame?
 	end
 	return CFrame.new(center / #seats + Vector3.new(0, 1.3, 0))
 end
+-- SeatPart/Occupant can still be settling when SeatWeld already connects the rig to furniture.
+-- Inspect the actual joints before moving a bot; moving any welded body part can move the seat too.
+function WorldBindings.SeatAttachment(self: any, character: Model): (BasePart?, Weld?)
+	for _, part in character:GetDescendants() do
+		if not part:IsA("BasePart") then continue end
+		for _, joint in part:GetJoints() do
+			if not joint:IsA("Weld") or joint.Name ~= "SeatWeld" then continue end
+			local other = if joint.Part0 == part then joint.Part1 else joint.Part0
+			if other and (other:IsA("Seat") or other:IsA("VehicleSeat")) and not other:IsDescendantOf(character) then
+				return other, joint
+			end
+		end
+	end
+	return nil, nil
+end
+
+function WorldBindings.DetachSeat(self: any, character: Model, humanoid: Humanoid)
+	humanoid.Sit = false
+	local _, weld = self:SeatAttachment(character)
+	while weld do
+		-- Only a SeatWeld actually attached to this character is removed; other occupants are untouched.
+		weld:Destroy()
+		_, weld = self:SeatAttachment(character)
+	end
+end
+
 function WorldBindings.Alive(self: any, player: any): boolean
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")

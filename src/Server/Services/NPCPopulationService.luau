@@ -82,6 +82,21 @@ local function clearAssemblyMotion(character: Instance)
 	end
 end
 
+local function stopWalking(bot: any)
+	if not bot.Humanoid or not bot.Humanoid.Parent then return end
+	-- Clear both the destination and directional input before another route or seat takes over.
+	if bot.Root and bot.Root.Parent then bot.Humanoid:MoveTo(bot.Root.Position) end
+	bot.Humanoid:Move(Vector3.zero)
+	bot.Humanoid.Jump = false
+end
+
+local function currentWalk(self: any, bot: any, token: number): boolean
+	return not self.Destroyed and self:Owns(bot) and token == bot.MoveToken
+		and bot.Root.Parent ~= nil and bot.Humanoid.Parent ~= nil and bot.Humanoid.Health > 0
+		and bot.State ~= "SEATING" and not bot.Humanoid.Sit and not bot.Humanoid.SeatPart
+		and not self.D.IsMatched(bot) and not self.D.Bindings:SeatAttachment(bot.Character)
+end
+
 local function finiteVector(value: Vector3): boolean
 	return value.X == value.X
 		and value.Y == value.Y
@@ -599,6 +614,9 @@ function NPCPopulationService.Create(self: any): any?
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	humanoid.BreakJointsOnDeath = false
+	-- Imported rigs must start under Humanoid control, not in a physics-only display pose.
+	humanoid.EvaluateStateMachine = true
+	humanoid.PlatformStand, humanoid.Sit, humanoid.AutoRotate = false, false, true
 	local cruiseSpeed = self.Random:NextNumber(self.Config.WalkSpeedMin or 9, self.Config.WalkSpeedMax or 15)
 	humanoid.WalkSpeed = 0
 	character:PivotTo(self:SpawnFrame())
@@ -669,8 +687,19 @@ end
 function NPCPopulationService.CancelMove(self: any, bot: any)
 	bot.MoveToken += 1
 	bot.DesiredSpeed = 0
-	if bot.Humanoid and bot.Humanoid.Parent then bot.Humanoid:Move(Vector3.zero) end
+	stopWalking(bot)
+	if bot.Humanoid and bot.Humanoid.Parent then bot.Humanoid.AutoRotate = true end
 	self:ClearReservation(bot)
+end
+
+function NPCPopulationService.RecoverWater(self: any, bot: any, destination: Vector3)
+	if not self:Owns(bot) then return end
+	self:CancelMove(bot)
+	bot.CurrentSpeed, bot.DesiredSpeed, bot.Humanoid.WalkSpeed = 0, 0, 0
+	bot.DriftStartedAt, bot.LastSeat, bot.LeaveAt = nil, nil, nil
+	bot.Departing, bot.SafeOrigin, bot.State = false, destination, "IDLE"
+	bot.WaterRecoveryUntil = self.D.Now() + self.Config.WaterRecoveryPauseSeconds
+	bot.NextDecision = bot.WaterRecoveryUntil
 end
 
 function NPCPopulationService.Remove(self: any, bot: any)
@@ -690,7 +719,7 @@ end
 function NPCPopulationService.Release(self: any, bot: any)
 	if not self:Owns(bot) then return end
 	local humanoid = bot.Humanoid
-	local seat = (humanoid and humanoid.SeatPart) or bot.ReservedSeat or bot.LastSeat
+	local seat = self.D.Bindings:SeatAttachment(bot.Character) or (humanoid and humanoid.SeatPart) or bot.ReservedSeat or bot.LastSeat
 	bot.LastSeat = nil
 	local outward = bot.Root.CFrame.LookVector * Vector3.new(1, 0, 1)
 	if seat and seat:IsA("BasePart") then
@@ -709,12 +738,10 @@ function NPCPopulationService.Release(self: any, bot: any)
 	self:CancelMove(bot)
 	local releaseToken = bot.MoveToken
 	if humanoid and humanoid.Parent then
-		humanoid.Sit = false
+		self.D.Bindings:DetachSeat(bot.Character, humanoid)
 		humanoid.AutoRotate = true
 	end
 	if seat and seat:IsA("BasePart") then
-		local weld = seat:FindFirstChild("SeatWeld")
-		if weld and weld:IsA("Weld") and weld.Part1 and weld.Part1:IsDescendantOf(bot.Character) then weld:Destroy() end
 		-- Move clear of the seat's touch area immediately; the remaining distance is walked naturally below.
 		bot.Character:PivotTo(bot.Character:GetPivot() + outward * math.max(1.8, seat.Size.Z * 0.5 + 0.8))
 		clearAssemblyMotion(bot.Character)
@@ -726,12 +753,7 @@ function NPCPopulationService.Release(self: any, bot: any)
 	bot.NextDecision = nil
 	task.defer(function()
 		if not self:Owns(bot) or bot.MoveToken ~= releaseToken or self.D.IsMatched(bot) then return end
-		local activeSeat = humanoid and humanoid.Parent and humanoid.SeatPart
-		if activeSeat then
-			humanoid.Sit = false
-			local weld = activeSeat:FindFirstChild("SeatWeld")
-			if weld and weld:IsA("Weld") and weld.Part1 and weld.Part1:IsDescendantOf(bot.Character) then weld:Destroy() end
-		end
+		if humanoid and humanoid.Parent then self.D.Bindings:DetachSeat(bot.Character, humanoid) end
 		self:Walk(bot, self:GroundPoint(exitPoint, bot), function()
 			if self:Owns(bot) and not self.D.IsMatched(bot) then self:Wander(bot) end
 		end)
@@ -751,17 +773,25 @@ function NPCPopulationService.GroundPoint(self: any, point: Vector3, bot: any): 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { self.Root, bot.Character }
-	params.IgnoreWater = true
+	params.IgnoreWater = false
+	local function dry(hit: RaycastResult?): boolean
+		if not hit or hit.Material == Enum.Material.Water then return false end
+		local map = self.D.World:FindFirstChild("Map")
+		return not (hit.Instance.Name == "Water" and map and hit.Instance:IsDescendantOf(map))
+	end
 	local hit = self.D.World:Raycast(point + Vector3.new(0, 18, 0), Vector3.new(0, -45, 0), params)
-	if hit then return hit.Position + Vector3.new(0, 0.1, 0) end
+	if dry(hit) and hit then return hit.Position + Vector3.new(0, 0.1, 0) end
 	-- Never direct a Humanoid toward empty space. A missed random destination becomes a harmless stay-put point.
 	local current = bot.Root.Position
 	local currentHit = self.D.World:Raycast(current + Vector3.new(0, 18, 0), Vector3.new(0, -45, 0), params)
-	return if currentHit then currentHit.Position + Vector3.new(0, 0.1, 0) else current
+	return if dry(currentHit) and currentHit then currentHit.Position + Vector3.new(0, 0.1, 0) else current
 end
 
 function NPCPopulationService.RecoverRunaway(self: any, bot: any): boolean
-	if self.D.IsMatched(bot) or bot.Humanoid.SeatPart then return false end
+	if self.D.IsMatched(bot) or bot.Humanoid.SeatPart or bot.State == "SEATING" or self.D.Bindings:SeatAttachment(bot.Character) then
+		bot.DriftStartedAt = nil
+		return false
+	end
 	local position, velocity = bot.Root.Position, bot.Root.AssemblyLinearVelocity
 	local origin = bot.SafeOrigin or self:SpawnFrame().Position
 	local maximumSpeed = self.Config.RunawaySpeed or 55
@@ -773,15 +803,34 @@ function NPCPopulationService.RecoverRunaway(self: any, bot: any): boolean
 		or velocity.Magnitude > maximumSpeed
 		or position.Y < origin.Y - maximumFall
 		or Vector3.new(offset.X, 0, offset.Z).Magnitude > maximumRadius
-	if not runaway then return false end
+	local humanoid = bot.Humanoid
+	local state = humanoid:GetState()
+	local disabled = not humanoid.EvaluateStateMachine or humanoid.PlatformStand
+		or state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.PlatformStanding
+		or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown
+	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+	local drifting = humanoid.FloorMaterial ~= Enum.Material.Air
+		and horizontalSpeed >= (self.Config.DriftSpeed or 2)
+		and (humanoid.MoveDirection.Magnitude < 0.05 or (bot.CurrentSpeed or 0) < 0.1)
+	local now = self.D.Now()
+	if disabled or drifting then bot.DriftStartedAt = bot.DriftStartedAt or now
+	else bot.DriftStartedAt = nil end
+	-- Ignore brief bumps, deceleration and normal jumps. Persistent low-speed sliding otherwise evades RunawaySpeed.
+	local stalled = bot.DriftStartedAt and now - bot.DriftStartedAt >= (self.Config.DriftSeconds or 2)
+	if not runaway and not stalled then return false end
 
 	self:CancelMove(bot)
+	bot.Character:SetAttribute("ScaleNPCRecoveryReason", if runaway then "Runaway" elseif disabled then "HumanoidDisabled" else "UncommandedDrift")
+	bot.Humanoid.EvaluateStateMachine = true
 	bot.Humanoid.Sit = false
 	bot.Humanoid.PlatformStand = false
 	bot.Humanoid.AutoRotate = true
 	bot.Character:PivotTo(self:SpawnFrame())
+	stopWalking(bot)
 	clearAssemblyMotion(bot.Character)
 	pcall(function() bot.Root:SetNetworkOwner(nil) end)
+	bot.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	bot.DriftStartedAt = nil
 	bot.SafeOrigin = bot.Root.Position
 	bot.Departing = false
 	bot.LastSeat = nil
@@ -819,44 +868,41 @@ function NPCPopulationService.Route(self: any, bot: any, destination: Vector3): 
 end
 
 function NPCPopulationService.LookAround(self: any, bot: any, token: number)
-	if token ~= bot.MoveToken or bot.Humanoid.SeatPart then return end
+	if not currentWalk(self, bot, token) then return end
 	bot.State = "PAUSING"
 	bot.DesiredSpeed = 0
-	bot.Humanoid:Move(Vector3.zero)
+	stopWalking(bot)
 	task.wait(self.Random:NextNumber(0.12, 0.28))
+	if not currentWalk(self, bot, token) then return end
 	bot.Humanoid.AutoRotate = false
 	for _ = 1, self.Random:NextInteger(1, 2) do
-		if token ~= bot.MoveToken or not self:Owns(bot) then
-			if bot.Humanoid and bot.Humanoid.Parent then bot.Humanoid.AutoRotate = true end
-			return
-		end
+		if not currentWalk(self, bot, token) then return end
 		local angle = self.Random:NextNumber(-1.2, 1.2)
 		local facing = CFrame.Angles(0, angle, 0):VectorToWorldSpace(bot.Root.CFrame.LookVector)
 		local flatFacing = Vector3.new(facing.X, 0, facing.Z)
 		if flatFacing.Magnitude > 0.01 then
-			local start = bot.Root.CFrame
-			local goal = CFrame.lookAt(bot.Root.Position, bot.Root.Position + flatFacing)
+			local start = bot.Root.CFrame.Rotation
+			local goal = CFrame.lookAt(Vector3.zero, flatFacing)
 			local steps = self.Random:NextInteger(5, 9)
 			for step = 1, steps do
-				if token ~= bot.MoveToken or not self:Owns(bot) then
-					if bot.Humanoid and bot.Humanoid.Parent then bot.Humanoid.AutoRotate = true end
-					return
-				end
+				if not currentWalk(self, bot, token) then return end
 				local alpha = step / steps
 				alpha = alpha * alpha * (3 - 2 * alpha)
-				bot.Root.CFrame = start:Lerp(goal, alpha)
+				-- Only turn: don't repeatedly pin a falling or bumped rig to an old position.
+				bot.Root.CFrame = CFrame.new(bot.Root.Position) * start:Lerp(goal, alpha)
 				task.wait(0.03)
 			end
 		end
 		task.wait(self.Random:NextNumber(0.2, 0.75) * bot.Personality.Pause)
 	end
-	if self:Owns(bot) and token == bot.MoveToken then bot.Humanoid.AutoRotate = true end
+	if currentWalk(self, bot, token) then bot.Humanoid.AutoRotate = true end
 end
 
 function NPCPopulationService.Walk(self: any, bot: any, destination: Vector3, arrived: (() -> ())?)
 	if not self:Owns(bot) or not bot.Root.Parent or not bot.Humanoid.Parent then return end
 	bot.MoveToken += 1
 	local token = bot.MoveToken
+	stopWalking(bot)
 	local route = self:Route(bot, destination)
 	bot.State = "WALKING"
 	bot.Humanoid.AutoRotate = true
@@ -866,7 +912,7 @@ function NPCPopulationService.Walk(self: any, bot: any, destination: Vector3, ar
 		for routeIndex, routePoint in route do
 			local legComplete = false
 			for _ = 1, self.Config.PathRetries or 3 do
-				if self.Destroyed or not self:Owns(bot) or token ~= bot.MoveToken then return end
+				if not currentWalk(self, bot, token) then return end
 				local points: { any } = {}
 				local path: any = nil
 				local ok = pcall(function()
@@ -874,24 +920,30 @@ function NPCPopulationService.Walk(self: any, bot: any, destination: Vector3, ar
 						AgentRadius = 2,
 						AgentHeight = 5,
 						AgentCanJump = true,
+						Costs = { Water = math.huge },
 						WaypointSpacing = self.Random:NextNumber(3.5, 6),
 					})
 					path:ComputeAsync(bot.Root.Position, routePoint)
 				end)
-				if ok and path and path.Status == Enum.PathStatus.Success then points = path:GetWaypoints()
-				else points = { { Position = routePoint, Action = Enum.PathWaypointAction.Walk } } end
+				if not currentWalk(self, bot, token) then return end
+				if ok and path and path.Status == Enum.PathStatus.Success then
+					points = path:GetWaypoints()
+				else
+					-- A failed route is not permission to walk straight through water or off the island.
+					break
+				end
 				local blocked, waypointIndex = false, 0
 				local blockedConnection = if path then path.Blocked:Connect(function(index)
-					if index >= waypointIndex then
+					if currentWalk(self, bot, token) and index >= waypointIndex then
 						blocked = true
 						-- Interrupt MoveToFinished immediately; the next bounded attempt computes around the new obstruction.
-						if bot.Humanoid.Parent then bot.Humanoid:MoveTo(bot.Root.Position) end
+						stopWalking(bot)
 					end
 				end) else nil
 				legComplete = true
 				for pointIndex, waypoint in points do
 					waypointIndex = pointIndex
-					if self.Destroyed or not self:Owns(bot) or token ~= bot.MoveToken or not bot.Humanoid.Parent then
+					if not currentWalk(self, bot, token) then
 						if blockedConnection then blockedConnection:Disconnect() end
 						return
 					end
@@ -912,30 +964,50 @@ function NPCPopulationService.Walk(self: any, bot: any, destination: Vector3, ar
 					if waypoint.Action == Enum.PathWaypointAction.Jump then
 						bot.DesiredSpeed = bot.CruiseSpeed * 0.72
 						task.wait(self.Random:NextNumber(0.04, 0.11))
+						if not currentWalk(self, bot, token) then
+							if blockedConnection then blockedConnection:Disconnect() end
+							return
+						end
 						bot.Humanoid.Jump = true
 					end
+					if blocked then legComplete = false;break end
+					local reached: boolean? = nil
+					local moveConnection = bot.Humanoid.MoveToFinished:Connect(function(success) reached = success end)
 					bot.Humanoid:MoveTo(target)
-					local reached = bot.Humanoid.MoveToFinished:Wait()
+					local expires = self.D.Now() + (self.Config.WaypointTimeoutSeconds or 8)
+					while reached == nil and not blocked and currentWalk(self, bot, token) and self.D.Now() < expires do
+						task.wait(0.1)
+					end
+					moveConnection:Disconnect()
+					if not currentWalk(self, bot, token) then
+						if blockedConnection then blockedConnection:Disconnect() end
+						return
+					end
 					if blocked or not reached then legComplete = false;break end
 					if pauseAfter then
 						self:LookAround(bot, token)
-						if token == bot.MoveToken then
-							bot.State = "WALKING"
-							bot.DesiredSpeed = bot.CruiseSpeed * self.Random:NextNumber(0.9, 1.04)
+						if not currentWalk(self, bot, token) then
+							if blockedConnection then blockedConnection:Disconnect() end
+							return
 						end
+						bot.State = "WALKING"
+						bot.DesiredSpeed = bot.CruiseSpeed * self.Random:NextNumber(0.9, 1.04)
 					end
 				end
 				if blockedConnection then blockedConnection:Disconnect() end
 				if legComplete then break end
 				bot.DesiredSpeed = 0
+				stopWalking(bot)
 				task.wait(self.Random:NextNumber(0.08, 0.22))
+				if not currentWalk(self, bot, token) then return end
 				bot.DesiredSpeed = bot.CruiseSpeed * self.Random:NextNumber(0.88, 1.02)
 			end
 			if not legComplete then completed = false;break end
 			if routeIndex < #route and self.Random:NextNumber() < 0.35 then task.wait(self.Random:NextNumber(0.1, 0.45)) end
 		end
-		if self.Destroyed or not self:Owns(bot) or token ~= bot.MoveToken then return end
+		if not currentWalk(self, bot, token) then return end
 		bot.DesiredSpeed = 0
+		stopWalking(bot)
 		if completed and arrived then arrived() end
 		if not completed and bot.Departing then self:Remove(bot);return end
 		if token == bot.MoveToken and bot.State == "WALKING" then
@@ -957,6 +1029,7 @@ function NPCPopulationService.TableBoundCount(self: any): number
 end
 
 function NPCPopulationService.CanSeatPopulation(self: any, bot: any, record: any?): boolean
+	if self.D.Now() < (bot.WaterRecoveryUntil or 0) then return false end
 	if not bot.ManagedPopulation then return true end
 	if record and select(1, self:SeatCounts(record)) > 0 then return true end
 	local managed = 0
@@ -1097,25 +1170,23 @@ function NPCPopulationService.Seat(self: any, bot: any, record: any, seat: Seat)
 	local token = bot.MoveToken
 	bot.State = "SEATING"
 	bot.DesiredSpeed = 0
-	bot.Humanoid:Move(Vector3.zero)
+	stopWalking(bot)
+	bot.Humanoid.AutoRotate = true
 	seat.Disabled = false
-	-- A destroyed/released occupant can occasionally leave its weld behind for a frame. It blocks Seat:Sit even though
-	-- Occupant is already nil, producing a bot that stands on the chair until its next decision.
+	-- Preserve a live occupant's weld even before SeatPart/Occupant have caught up.
 	local staleWeld = seat:FindFirstChild("SeatWeld")
 	if not seat.Occupant and staleWeld and staleWeld:IsA("Weld") then
 		local weldedCharacter = staleWeld.Part1 and staleWeld.Part1:FindFirstAncestorOfClass("Model")
 		local weldedHumanoid = weldedCharacter and weldedCharacter:FindFirstChildOfClass("Humanoid")
-		if weldedHumanoid and weldedHumanoid.SeatPart == seat then
-			-- A real occupant won the same-frame race before Seat.Occupant replicated; leave their weld alone.
+		if weldedHumanoid and weldedHumanoid ~= bot.Humanoid and weldedHumanoid.Health > 0 then
 			self:ClearReservation(bot)
 			bot.State, bot.NextDecision = "IDLE", self.D.Now()
 			return
 		end
-		staleWeld:Destroy()
+		if weldedHumanoid ~= bot.Humanoid then staleWeld:Destroy() end
 	end
-	-- The first call usually seats immediately. Verification and progressively closer retries cover cloned rigs whose
-	-- collision assembly has not settled yet when they arrive.
-	seat:Sit(bot.Humanoid)
+	-- Let Roblox position the rig and create the normal SeatWeld. Never pivot a potentially welded character.
+	if not self.D.Bindings:SeatAttachment(bot.Character) then seat:Sit(bot.Humanoid) end
 	task.spawn(function()
 		for attempt = 1, 4 do
 			task.wait(if attempt == 1 then 0.12 else 0.18)
@@ -1129,11 +1200,10 @@ function NPCPopulationService.Seat(self: any, bot: any, record: any, seat: Seat)
 				return
 			end
 			if seat.Occupant and seat.Occupant ~= bot.Humanoid then break end
-			-- Snap only the final seating contact after the visible walk. Pivoting by the root keeps every Motor6D intact.
-			local rootTarget = seat.CFrame * CFrame.new(0, seat.Size.Y * 0.5 + bot.Humanoid.HipHeight + bot.Root.Size.Y * 0.5, 0)
-			bot.Character:PivotTo(rootTarget * bot.Root.CFrame:Inverse() * bot.Character:GetPivot())
-			bot.Humanoid.Sit = false
-			seat:Sit(bot.Humanoid)
+			-- Give every attempt a verification window, including the last one. An existing weld must settle untouched.
+			if attempt < 4 and not seat:FindFirstChild("SeatWeld") and not self.D.Bindings:SeatAttachment(bot.Character) then
+				seat:Sit(bot.Humanoid)
+			end
 		end
 		if token ~= bot.MoveToken then return end
 		-- Failed seating must move away immediately instead of leaving the NPC frozen on the chair.
@@ -1311,6 +1381,7 @@ function NPCPopulationService.Step(self: any, dt: number)
 			continue
 		end
 		if self:RecoverRunaway(bot) then continue end
+		if now < (bot.WaterRecoveryUntil or 0) then continue end
 		self:UpdateSpeed(bot, dt)
 		if bot.Departing then continue end
 		if self.D.IsMatched(bot) then bot.State, bot.DesiredSpeed = "MATCH", 0;continue end

@@ -3,6 +3,7 @@
 -- participant UserId (negative for bots), so ambient NPCs cannot be mistaken for the real account whose AvatarUserId
 -- they borrow. One tagged-instance listener completes portraits whose character replicated just after the UI packet.
 local CollectionService = game:GetService("CollectionService")
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared").Config.GameConfig)
 
 local BotPortrait = {}
 local pending = setmetatable({}, { __mode = "k" })
@@ -12,14 +13,18 @@ local function isBot(userId: number?): boolean
 	return type(userId) == "number" and userId < 0
 end
 
+local function isWorldCharacter(instance: Instance): boolean
+	return instance:IsA("Model") and instance:IsDescendantOf(workspace)
+		and instance:FindFirstAncestorWhichIsA("WorldModel") == nil
+end
+
 local function sourceFor(userId: number): Model?
 	for _, instance in CollectionService:GetTagged("ScaleBot") do
 		if
-			instance:IsA("Model")
-			and instance:IsDescendantOf(workspace)
+			isWorldCharacter(instance)
 			and instance:GetAttribute("ScaleBotUserId") == userId
 		then
-			return instance
+			return instance :: Model
 		end
 	end
 	return nil
@@ -60,7 +65,7 @@ local function clearViewport(viewport: ViewportFrame)
 end
 
 local function render(image: GuiObject, userId: number, source: Model): boolean
-	if not image.Parent or image:GetAttribute("BotPortraitUserId") ~= userId then return false end
+	if not image.Parent or image:GetAttribute("BotPortraitUserId") ~= userId or not isWorldCharacter(source) then return false end
 	local viewport = viewportFor(image)
 	if viewport:GetAttribute("PortraitUserId") == userId and viewport.CurrentCamera then
 		if image:IsA("ImageLabel") or image:IsA("ImageButton") then image.ImageTransparency = 1 end
@@ -73,6 +78,10 @@ local function render(image: GuiObject, userId: number, source: Model): boolean
 	local ok, character = pcall(function() return source:Clone() end)
 	source.Archivable = wasArchivable
 	if not ok or not character then return false end
+	-- Strip runtime identity before parenting: tagged portrait clones otherwise look like real bot characters to
+	-- reaction cameras and CollectionService listeners, but their heads sit at the portrait's local origin.
+	for _, tag in CollectionService:GetTags(character) do CollectionService:RemoveTag(character, tag) end
+	character:SetAttribute("ScaleBotUserId", nil)
 	for _, descendant in character:GetDescendants() do
 		if descendant:IsA("BaseScript") then
 			descendant:Destroy()
@@ -97,7 +106,7 @@ local function render(image: GuiObject, userId: number, source: Model): boolean
 	-- Keep the face dominant in the small circular player card. A small downward bias retains the top of the
 	-- shoulders without letting the torso consume most of the portrait.
 	local focus = head.Position - Vector3.yAxis * (head.Size.Y * 0.04)
-	local distance = math.max(2.8, head.Size.Magnitude * 1.35)
+	local distance = math.max(2.8, head.Size.Magnitude * 1.35) * Config.BotPortraitDistanceScale
 	local camera = Instance.new("Camera")
 	camera.Name, camera.FieldOfView = "PortraitCamera", 24
 	camera.CFrame = CFrame.lookAt(focus + forward * distance, focus, Vector3.yAxis)
@@ -141,12 +150,12 @@ function BotPortrait.Set(image: GuiObject?, userId: number?, avatarUserId: numbe
 end
 
 CollectionService:GetInstanceAddedSignal("ScaleBot"):Connect(function(instance)
-	if not instance:IsA("Model") then return end
+	if not isWorldCharacter(instance) then return end
 	local userId = instance:GetAttribute("ScaleBotUserId")
 	if type(userId) ~= "number" then return end
 	for image, wanted in pending do
 		if wanted == userId then
-			if render(image, userId, instance) then pending[image] = nil end
+			if render(image, userId, instance :: Model) then pending[image] = nil end
 		end
 	end
 end)

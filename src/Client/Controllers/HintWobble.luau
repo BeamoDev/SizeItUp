@@ -62,7 +62,12 @@ function HintWobble.SetEnabled(self: any, enabled: boolean)
 	self.Delay = randomDelay(self.Random, enabled)
 end
 
-function HintWobble.Step(self: any, dt: number)
+function HintWobble.Play(self: any)
+	self:SetEnabled(true)
+	self.Delay = 0
+end
+
+function HintWobble.Step(self: any, dt: number): boolean?
 	local target = self.Target
 	if not self.Enabled or not target.Parent or not target.Visible then
 		self:Reset()
@@ -91,6 +96,7 @@ function HintWobble.Step(self: any, dt: number)
 	if progress >= 1 then
 		self:Reset()
 		self.Delay = randomDelay(self.Random, false)
+		return true
 	end
 end
 

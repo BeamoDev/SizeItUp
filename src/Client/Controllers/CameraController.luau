@@ -147,7 +147,7 @@ function CameraController.HideTableCutscene(self: any)
 	end
 end
 
-function CameraController.StartTable(self: any, view: any, target: Player?)
+function CameraController.StartTable(self: any, view: any, target: any)
 	assert(view, "Missing table camera framing")
 	if not self.Saved then
 		self:Start({ Camera = view.Camera })
@@ -164,13 +164,11 @@ function CameraController.StartTable(self: any, view: any, target: Player?)
 	end
 	self.Mode, self.TableView = "TABLE", view
 	self:HideTableCutscene()
-	if target ~= nil then
-		self.TargetPlayer = target
-	end
+	self.TargetPlayer = target
 end
 -- Ease from the current pose onto the next seated player. Each reaction slot must start a fresh look, or the first
 -- avatar keeps the camera while the HUD cycles through everyone else.
-function CameraController.FocusTablePlayer(self: any, target: Player?)
+function CameraController.FocusTablePlayer(self: any, target: any)
 	if self.TargetPlayer == target then
 		return
 	end
@@ -183,6 +181,10 @@ end
 function CameraController.StepTable(self: any, dt: number)
 	local view, camera = self.TableView, self.Saved.Camera
 	local character = self.TargetPlayer and self.TargetPlayer.Character
+	-- Viewport rigs have world-like CFrames but are not the seated character. Never aim at their local origin.
+	if character and (not character:IsDescendantOf(self.World) or character:FindFirstAncestorWhichIsA("WorldModel")) then
+		character = nil
+	end
 	local head = character and character:FindFirstChild("Head")
 	local focus = view.Focus
 	if head and head:IsA("BasePart") then
@@ -310,7 +312,7 @@ function CameraController.Step(self: any, dt: number, points: { Vector3 }, targe
 			self.ResultSettle = nil
 		end
 	end
-	-- Wobble (a watcher's troll) rolls the view gently; it is recomputed every frame, so it never accumulates.
+	-- Wobble spins and swings the view; it is recomputed every frame, so it never accumulates.
 	-- The 2D overlays (rulers, hint ranges) keep the un-rolled view (see Steady), so they never tilt with the wobble.
 	self.Unrolled = if self.Sway and self.Sway ~= 0 then camera.CFrame else nil
 	if self.Sway and self.Sway ~= 0 then

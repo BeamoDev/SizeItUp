@@ -1,5 +1,6 @@
 --!strict
 local MatchController = {}
+local HintWobble = require(script.Parent.HintWobble)
 MatchController.__index = MatchController
 local TICK_PITCHES = { 0.97, 1.02, 0.99, 1.04, 0.96, 1.01 }
 function MatchController.PlayScaleTick(self: any, name: string)
@@ -25,6 +26,7 @@ function MatchController.new(dependencies: any)
 		RevealAnimation = nil,
 	}, MatchController)
 	local overlay = {
+		Config = d.Config.SabotageVisuals,
 		PlayerGui = d.Player:WaitForChild("PlayerGui"),
 		Effects = d.Effects,
 		Viewport = function()
@@ -274,6 +276,29 @@ function MatchController.new(dependencies: any)
 	-- Every troll button (ink, and Lag / FogBank / Wobble when the layout has them) sends its own kind.
 	local sabotage = self.UI.SabotageButtons
 		or (if self.UI.InkSplatButton then { Ink = self.UI.InkSplatButton } else {})
+	self.SabotageCues, self.CueRandom = {}, Random.new()
+	for _, button in sabotage do table.insert(self.SabotageCues, HintWobble.new(button)) end
+	if d.LeaveSpectator then
+		local function leave()
+			local s = self.Snapshot
+			if not s or not s.CanLeaveSpectating or not s.MatchId or d.Input:GetFocusedTextBox() then return end
+			local now = d.World:GetServerTimeNow()
+			if now - (self.LastSpectatorExit or -math.huge) < 0.25 then return end
+			self.LastSpectatorExit = now
+			d.LeaveSpectator:FireServer(s.MatchId)
+		end
+		table.insert(self.Connections, d.Input.JumpRequest:Connect(leave))
+		-- Bind an existing authored exit control when supplied; never generate a replacement button.
+		local bound = {}
+		for _, name in { "Exit", "ExitButton", "Leave", "LeaveButton" } do
+			local node = self.UI.Gui and self.UI.Gui:FindFirstChild(name, true)
+			local button = node and (if node:IsA("GuiButton") then node else node:FindFirstChildWhichIsA("GuiButton", true))
+			if button and not bound[button] then
+				bound[button] = true
+				table.insert(self.Connections, button.Activated:Connect(leave))
+			end
+		end
+	end
 	if d.InkSplat then
 		for kind, button in sabotage do
 			table.insert(
@@ -462,9 +487,14 @@ function MatchController.TablePlayer(self: any, userId: number?): any
 	if player then
 		return player
 	end
+	local function isWorldBot(character: Instance?): boolean
+		return character ~= nil and character:IsA("Model") and character:IsDescendantOf(self.D.World)
+			and character:FindFirstAncestorWhichIsA("WorldModel") == nil
+			and character:GetAttribute("ScaleBotUserId") == userId
+	end
 	self.BotTargets = self.BotTargets or {}
 	local cached = self.BotTargets[userId]
-	if cached and cached.Character and cached.Character.Parent then
+	if cached and isWorldBot(cached.Character) then
 		return cached
 	end
 	self.BotTargets[userId] = nil
@@ -472,7 +502,7 @@ function MatchController.TablePlayer(self: any, userId: number?): any
 		return (self.D.CollectionService or game:GetService("CollectionService")):GetTagged("ScaleBot")
 	end)
 	for _, character in if ok then tagged else {} do
-		if character:GetAttribute("ScaleBotUserId") == userId then
+		if isWorldBot(character) then
 			self.BotTargets[userId] = { Character = character }
 			return self.BotTargets[userId]
 		end
@@ -693,6 +723,12 @@ function MatchController.Receive(self: any, snapshot: any)
 	end
 	self.Revision = snapshot.Revision
 	self.Snapshot = snapshot
+	if snapshot.State == "IDLE" and not snapshot.Completion then
+		-- A spectator exit is immediate even during a reveal or black-wipe transition.
+		self:Interrupt()
+		self:ApplySnapshot(snapshot)
+		return
+	end
 	self:PlaySnapshotSounds(snapshot)
 	if self.ModeVote then
 		self.ModeVote:Show(snapshot, self.D.World:GetServerTimeNow())
@@ -806,7 +842,7 @@ function MatchController.ApplySnapshot(self: any, snapshot: any)
 	end
 	if snapshot.Hint then
 		self.PendingHint = nil
-		-- A new clue confirms itself: paid hints as a purchase, a pet's free hint as news.
+		-- A new exact-size highlight confirms itself: paid hints as a purchase, a pet's free hint as news.
 		if self.HintAlertId ~= snapshot.Hint.Id then
 			self.HintAlertId = snapshot.Hint.Id
 			if self.D.Alerts and snapshot.CanGuess then
@@ -846,6 +882,33 @@ function MatchController.ApplySnapshot(self: any, snapshot: any)
 		self.RevealAnimation, self.RevealKey = nil, nil
 	end
 end
+function MatchController.StepSabotageCue(self: any, dt: number)
+	local cues = self.SabotageCues or {}
+	if not self:CanInkSplat() or self.Transition:IsActive() then
+		for _, cue in cues do cue:SetEnabled(false) end
+		self.ActiveCue, self.CueDelay = nil, nil
+		return
+	end
+	if self.ActiveCue then
+		if self.ActiveCue:Step(dt) then
+			self.ActiveCue:SetEnabled(false)
+			self.ActiveCue = nil
+			self.CueDelay = self.D.Config.SabotageVisuals.CuePauseSeconds
+		end
+		return
+	end
+	self.CueDelay = (self.CueDelay or 0) - dt
+	if self.CueDelay > 0 or #cues == 0 then return end
+	local choices = {}
+	for _, cue in cues do
+		if cue.Target.Visible and (#cues == 1 or cue ~= self.LastCue) then table.insert(choices, cue) end
+	end
+	if #choices == 0 then return end
+	self.ActiveCue = choices[self.CueRandom:NextInteger(1, #choices)]
+	self.LastCue = self.ActiveCue
+	self.ActiveCue:Play()
+end
+
 function MatchController.Step(self: any, dt: number)
 	local now = self.D.World:GetServerTimeNow()
 	if self.ModeVote then
@@ -853,6 +916,7 @@ function MatchController.Step(self: any, dt: number)
 	end
 	self.Transition:Step(dt)
 	self.UI:Step(dt)
+	self:StepSabotageCue(dt)
 	local snapshot = self.Snapshot
 	if self.PendingInk then
 		local confirmed = false
@@ -976,12 +1040,11 @@ function MatchController.Step(self: any, dt: number)
 			local focused = self:TablePlayer(reactionEntry.UserId)
 			-- A bot's NPC is handed to the reaction effects directly; real players are looked up there by UserId.
 			reactionCharacter = if type(focused) == "table" then focused.Character else nil
-			if focused then
-				if self.Camera.FocusTablePlayer then
-					self.Camera:FocusTablePlayer(focused)
-				else
-					self.Camera.TargetPlayer = focused
-				end
+			-- Missing/streamed-out characters use the server table view, never the previous slot's cached avatar.
+			if self.Camera.FocusTablePlayer then
+				self.Camera:FocusTablePlayer(focused)
+			else
+				self.Camera.TargetPlayer = focused
 			end
 		end
 	end
@@ -1011,6 +1074,7 @@ function MatchController.Step(self: any, dt: number)
 	self.Reaction:Step(reactionEntry, reactionCharacter)
 end
 function MatchController.Destroy(self: any)
+	for _, cue in self.SabotageCues or {} do cue:Destroy() end
 	if self.ModeVote then
 		self.ModeVote:Destroy()
 	end

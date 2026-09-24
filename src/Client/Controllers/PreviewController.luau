@@ -163,6 +163,7 @@ function PreviewController.Start(self: any, snapshot: any)
 	local folder = Instance.new("Folder")
 	folder.Name, folder.Parent = "ScaleItUpLocalPreview", home
 	self.Folder = folder
+	self.TargetDefinition = snapshot.Target
 	if self.Config.UseLabeledBricks then
 		self.Reference = { Model = BrickVisual.Create(snapshot.Reference, folder), Height = 4, Scale = 1 }
 		self.Target = { Model = BrickVisual.Create(snapshot.Target, folder), Height = 4, Scale = 1 }
@@ -294,6 +295,10 @@ function PreviewController.Draw(self: any, meters: number, shown: number?)
 		for _, object in self.ResultGuesses or {} do
 			largest = math.max(largest, math.max(b.X, b.Y, b.Z) / self.Target.Height * object.Meters)
 		end
+		if self.HintObject then
+			local hint = self.HintObject
+			largest = math.max(largest, math.max(hint.Size.X, hint.Size.Y, hint.Size.Z) / hint.Height * self.HintData.Actual)
+		end
 		units = math.min(units, self.Config.MaxPreviewExtent / largest)
 	end
 	if self.ResultKey then
@@ -317,6 +322,13 @@ function PreviewController.Draw(self: any, meters: number, shown: number?)
 	self.Gap = gap
 	self.Reference.Model:PivotTo(self.Reference.Model:GetPivot() + right * (middle - gap * 0.5 - aRight))
 	self.Target.Model:PivotTo(self.Target.Model:GetPivot() + right * (middle + gap * 0.5 - bLeft))
+	if self.HintObject then
+		-- The answer stays at its exact size while the guess moves. Both share the same metres-to-studs conversion,
+		-- floor and left edge, so even capped previews can be compared directly without overlapping the reference.
+		place(self.HintObject, self.HintData.Actual * units, facing)
+		local hintLeft = horizontalBounds(self.HintObject.Model, right)
+		self.HintObject.Model:PivotTo(self.HintObject.Model:GetPivot() + right * (middle + gap * 0.5 - hintLeft))
+	end
 	self.Value = meters
 	self.ViewDirty = false
 	contactShadow(self.Reference, self.Folder, baseline.Y, 1, "ReferenceContactShadow")
@@ -379,6 +391,7 @@ function PreviewController.Points(self: any): ({ Vector3 }, { Vector3 })
 		return points, targetPoints
 	end
 	local objects = { self.Reference, self.Target }
+	if self.HintObject then table.insert(objects, self.HintObject) end
 	for _, object in self.ResultGuesses or {} do
 		table.insert(objects, object)
 	end
@@ -703,16 +716,19 @@ function PreviewController.AnimateResults(self: any, age: number, force: boolean
 	)
 end
 function PreviewController.ClearHint(self: any)
-	if self.HintScan then
-		self.HintScan:Destroy()
+	if not self.HintObject and not self.HintData then return end
+	if self.HintObject then
+		self.HintObject.ResultHighlight:Destroy()
+		self.HintObject.Model:Destroy()
 	end
-	if self.HintRing then
-		self.HintRing:Destroy()
-	end
-	self.HintData, self.HintScan, self.HintRing = nil, nil, nil
+	self.HintData, self.HintObject = nil, nil
+	self.CachedPoints, self.CachedTargetPoints = nil, nil
+	self.ViewDirty = true
 end
 function PreviewController.SetHint(self: any, hint: any, now: number)
-	if not self.Folder or not self.Target or type(hint) ~= "table" or not hint.ExpiresAt or now >= hint.ExpiresAt then
+	if not self.Folder or not self.Target or self.ResultKey or type(hint) ~= "table"
+		or not hint.ExpiresAt or now >= hint.ExpiresAt
+		or not self.Math.IsGuess(hint.Actual, self.Config.MinimumGuessMeters, self.Config.MaximumGuessMeters) then
 		self:ClearHint()
 		return
 	end
@@ -720,42 +736,29 @@ function PreviewController.SetHint(self: any, hint: any, now: number)
 		return
 	end
 	self:ClearHint()
-	self.HintData = hint
-	-- Cosmetic feedback follows the current guess and cannot reveal the answer.
-	local function effect(name: string)
-		local part = Instance.new("Part")
-		part.Name = name
-		part.Anchored, part.CanCollide, part.CanTouch, part.CanQuery, part.CastShadow = true, false, false, false, false
-		part.Material, part.Color, part.Transparency = Enum.Material.Neon, Color3.fromRGB(255, 222, 80), 1
-		part.Parent = self.Folder
-		return part
+	local object
+	if self.Config.UseLabeledBricks then
+		local model = BrickVisual.Create(self.TargetDefinition, self.Folder)
+		local _, size = model:GetBoundingBox()
+		object = { Model = model, Height = size.Y, Size = size, Scale = model:GetScale() }
+	else
+		-- Clone the neutral sanitized template, never the changing guess or a replicated answer-sized asset.
+		object = clone(self.TargetSource, self.Folder)
 	end
-	self.HintScan = effect("HintAssistScan")
-	self.HintRing = effect("HintAssistRing")
-	self.HintRing.Shape = Enum.PartType.Cylinder
-	self:StepHint(now)
+	object.Model.Name = "ExactSizeHint"
+	local color = Color3.fromRGB(table.unpack(self.Config.HintColor))
+	resultStyle(object, color, self.Config.HintModelTransparency, self.Folder, "ExactSizeHintHighlight", self.Config.HintFillTransparency)
+	-- Sanitized clones contain only visible geometry/decal surfaces; keep decal-only surfaces visible after tinting.
+	for _, entry in object.ResultParts do entry.Part.Transparency = self.Config.HintModelTransparency end
+	object.ResultHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	object.ResultHighlight.OutlineTransparency = self.Config.HintOutlineTransparency
+	self.HintData, self.HintObject = hint, object
+	self:Draw(self.Value, shownMeters(self, self.Value))
 end
 function PreviewController.StepHint(self: any, now: number)
-	local data = self.HintData
-	if not data then
-		return
-	end
-	if now >= data.ExpiresAt then
+	if self.HintData and now >= self.HintData.ExpiresAt then
 		self:ClearHint()
-		return
 	end
-	local age = math.max(0, now - (data.StartedAt or data.ExpiresAt - (self.Config.HintSeconds or 10)))
-	local opacity = math.min(1, age / 0.7, math.max(0, data.ExpiresAt - now) / 0.8)
-	local frame, size = self.Target.Model:GetBoundingBox()
-	local floor = frame.Position.Y - size.Y * 0.5
-	local sweep = (age / 3) % 1
-	self.HintScan.Size = Vector3.new(math.max(0.05, size.X * 1.06), 0.025, math.max(0.05, size.Z * 1.06))
-	self.HintScan.CFrame = CFrame.new(frame.Position.X, floor + size.Y * sweep, frame.Position.Z)
-	self.HintScan.Transparency = 1 - 0.3 * opacity * math.sin(sweep * math.pi)
-	local radius = math.max(size.X, size.Z, 0.1) * (0.4 + 0.8 * sweep)
-	self.HintRing.Size = Vector3.new(0.025, radius, radius)
-	self.HintRing.CFrame = CFrame.new(frame.Position.X, floor + 0.015, frame.Position.Z) * CFrame.Angles(0, 0, math.pi / 2)
-	self.HintRing.Transparency = 1 - 0.25 * opacity * (1 - sweep)
 end
 function PreviewController.ClearGlow(self: any)
 	if self.TargetGlow then
@@ -826,6 +829,7 @@ function PreviewController.Clear(self: any)
 		self.Folder:Destroy()
 	end
 	self.Folder, self.Reference, self.Target, self.Arena = nil, nil, nil, nil
+	self.TargetSource, self.TargetDefinition = nil, nil
 	self.Value, self.DesiredValue, self.ShownMeters = nil, nil, nil
 	self.Glitch, self.GlitchEpisode, self.GlitchHeld = nil, nil, nil
 	self.ScaleVelocity = 0

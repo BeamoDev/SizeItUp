@@ -105,7 +105,7 @@ end
 function PracticeBotService.Spawn(self: any, record: any): any?
 	local seat = nil
 	for _, candidate in self.D.Bindings:Seats(record) or {} do
-		if not candidate.Occupant and not self.Reservations[candidate] then
+		if not candidate.Occupant and not candidate:FindFirstChild("SeatWeld") and not self.Reservations[candidate] then
 			seat = candidate
 			break
 		end
@@ -144,6 +144,9 @@ function PracticeBotService.Spawn(self: any, record: any): any?
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	humanoid.BreakJointsOnDeath = false
+	-- Position the disconnected clone before parenting, so touching a seat cannot weld it during this move.
+	local rootTarget = seat.CFrame * CFrame.new(0, seat.Size.Y * 0.5 + humanoid.HipHeight + root.Size.Y * 0.5, 0)
+	character:PivotTo(rootTarget * root.CFrame:Inverse() * character:GetPivot())
 	character.Parent = self.Root
 	if self.D.AttachBotTag then self.D.AttachBotTag(character) end
 	pcall(function()
@@ -173,11 +176,11 @@ function PracticeBotService.Spawn(self: any, record: any): any?
 	self.D.CollectionService:AddTag(character, "ScaleBot")
 
 	seat.Disabled = false
-	local rootTarget = seat.CFrame * CFrame.new(0, seat.Size.Y * 0.5 + humanoid.HipHeight + root.Size.Y * 0.5, 0)
-	character:PivotTo(rootTarget * root.CFrame:Inverse() * character:GetPivot())
-	seat:Sit(humanoid)
+	if not seat.Occupant and not seat:FindFirstChild("SeatWeld") and not self.D.Bindings:SeatAttachment(character) then
+		seat:Sit(humanoid)
+	end
 	task.spawn(function()
-		for _ = 1, 4 do
+		for attempt = 1, 4 do
 			task.wait(0.15)
 			if not self.Bots[bot] or not humanoid.Parent or not seat:IsDescendantOf(self.D.World) then
 				return
@@ -192,9 +195,9 @@ function PracticeBotService.Spawn(self: any, record: any): any?
 			if seat.Occupant and seat.Occupant ~= humanoid then
 				break
 			end
-			character:PivotTo(rootTarget * root.CFrame:Inverse() * character:GetPivot())
-			humanoid.Sit = false
-			seat:Sit(humanoid)
+			if attempt < 4 and not seat:FindFirstChild("SeatWeld") and not self.D.Bindings:SeatAttachment(character) then
+				seat:Sit(humanoid)
+			end
 		end
 		self:Remove(bot)
 	end)

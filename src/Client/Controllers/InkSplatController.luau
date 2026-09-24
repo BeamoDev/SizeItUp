@@ -11,8 +11,6 @@ local BLOB_COUNT = 7
 local SPAWN_GAP = 0.11 -- seconds between splats landing
 local IMPACT_SECONDS = 0.22
 local DRIP_SECONDS = 2.4
-local FADE_SECONDS = 1.2 -- gentle fade before the effect ends
-local RELEASE_SECONDS = 0.3 -- quick fade when the turn ends early
 local INK = Color3.fromRGB(16, 12, 38)
 local SHEEN = Color3.fromRGB(190, 175, 255)
 local BASE_TRANSPARENCY = 0.04
@@ -181,7 +179,7 @@ function InkSplat.Build(self: any, plan: { any })
 end
 
 -- Lay every shape out for the current viewport, event age and fade.
-function InkSplat.Layout(self: any, age: number, fade: number, viewport: Vector2)
+function InkSplat.Layout(self: any, age: number, fade: number, viewport: Vector2, drain: number)
 	local u = math.min(viewport.X, viewport.Y)
 	for _, part in self.Parts do
 		if part.Kind == "Banner" then
@@ -196,7 +194,9 @@ function InkSplat.Layout(self: any, age: number, fade: number, viewport: Vector2
 		end
 		local blob, spec, frame = part.Blob, part.Spec, part.Frame
 		local t = age - blob.Delay
-		local cx, cy = blob.Cx * viewport.X, blob.Cy * viewport.Y
+		-- Accelerating gravity carries each splat and its drips off the glass as their opacity drains away.
+		local slide = drain * drain * viewport.Y * (self.D.Config.InkDrainScreenHeights + blob.Delay * 0.18)
+		local cx, cy = blob.Cx * viewport.X, blob.Cy * viewport.Y + slide
 		local diameter, x, y, tone = 0, cx, cy, BASE_TRANSPARENCY
 		if part.Kind == "ImpactRing" then
 			if t >= 0 then
@@ -242,7 +242,7 @@ function InkSplat.Clear(self: any)
 	if self.Gui then
 		self.Gui:Destroy()
 	end
-	self.Gui, self.Root, self.Plan, self.Id, self.ReleasedAt = nil, nil, nil, nil, nil
+	self.Gui, self.Root, self.Plan, self.Id, self.ReleasedAt, self.Event, self.Drain = nil, nil, nil, nil, nil, nil, nil
 	self.Parts = {}
 end
 
@@ -272,23 +272,27 @@ function InkSplat.Step(self: any, snapshot: any, now: number)
 		end
 		self.ReleasedAt = nil
 		self.Event = event
-		self:Layout(now - event.StartedAt, clamp01((event.ExpiresAt - now) / FADE_SECONDS), self.D.Viewport())
+		self.Drain = clamp01(1 - (event.ExpiresAt - now) / self.D.Config.InkDrainSeconds)
+		self:Layout(now - event.StartedAt, 1 - self.Drain, self.D.Viewport(), self.Drain)
 		return
 	end
 	if not self.Gui then
 		return
 	end
-	-- The effect ended (turn locked, expired, or you threw it): fade out quickly, then remove.
-	self.ReleasedAt = self.ReleasedAt or now
-	local fade = 1 - clamp01((now - self.ReleasedAt) / RELEASE_SECONDS)
+	-- Preserve the current drain progress on early lock/expiry; never restart the fade from opaque.
+	local duration = self.D.Config.InkDrainSeconds
+	self.ReleasedAt = self.ReleasedAt or (now - (self.Drain or 0) * duration)
+	local drain = clamp01((now - self.ReleasedAt) / duration)
+	local fade = 1 - drain
 	if fade <= 0 or not self.Event then
 		self:Clear()
 		return
 	end
 	self:Layout(
-		math.max(0, self.ReleasedAt - self.Event.StartedAt),
-		math.min(fade, clamp01((self.Event.ExpiresAt - self.ReleasedAt) / FADE_SECONDS)),
-		self.D.Viewport()
+		math.max(0, now - self.Event.StartedAt),
+		fade,
+		self.D.Viewport(),
+		drain
 	)
 end
 

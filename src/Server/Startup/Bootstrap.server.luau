@@ -87,7 +87,7 @@ if not Config.UseLabeledBricks then
 end
 
 LobbySetup.Ensure(workspace, CollectionService, EconomyConfig, Config.TableTag)
-local waterRespawn = WaterRespawn.new(workspace, Players, CollectionService)
+local waterRespawn = WaterRespawn.new(workspace, Players, CollectionService, Config.WaterRespawn)
 
 local function instance(parent: Instance, name: string, className: string): any
 	local existing = parent:FindFirstChild(name)
@@ -107,6 +107,7 @@ local hintRemote = instance(remotes, Names.Hint, "RemoteEvent")
 local heartRemote = instance(remotes, Names.Heart, "RemoteEvent")
 local inkSplatRemote = instance(remotes, Names.InkSplat, "RemoteEvent")
 local readyRemote = instance(remotes, Names.Ready, "RemoteEvent")
+local leaveSpectatorRemote = instance(remotes, Names.LeaveSpectator, "RemoteEvent")
 local voteRemote = instance(remotes, Names.ModeVote, "RemoteEvent")
 local chatNewsRemote = instance(remotes, Names.ChatNews, "RemoteEvent")
 local playBotRemote = instance(remotes, Names.PlayBot, "RemoteEvent")
@@ -301,6 +302,7 @@ local luckyBlocksTrigger = LuckyBlocksTrigger.new(workspace, Players, function(p
 	economy:OpenLuckyBlocks(player)
 end)
 world = WorldBindings.new(workspace, Storage, Players, Catalog, Config)
+waterRespawn.Bindings = world
 local npcPopulation: any
 local practiceBots = PracticeBotService.new({
 	World = workspace,
@@ -488,7 +490,6 @@ local prizeRandom = Random.new()
 tables = TableService.new(Config, matches, {
 	Seated = function(player: Player)
 		if not isBot(player) then
-			player:SetAttribute("NewPlayerSeatGuide", false)
 			funnel:Log(player, AnalyticsFunnel.Seated)
 		end
 	end,
@@ -661,6 +662,11 @@ npcPopulation = NPCPopulationService.new({
 	RemoveVisual = function(bot) cosmeticDisplay:Remove(bot) end,
 	AttachBotTag = attachBotTag,
 })
+
+waterRespawn.BeforeBotReturn = function(character, destination)
+	local bot = world.Bots[character]
+	if bot and npcPopulation:Owns(bot) then npcPopulation:RecoverWater(bot, destination) end
+end
 
 local function promptBelongsToTurn(entry: any, match: any, now: number): boolean
 	if
@@ -1404,8 +1410,12 @@ if eggsRoot then
 		bindEggPrompt(entry.Prompt, entry.Body, entry.ShopId, eggsRoot)
 	end
 end
--- Seated players cannot jump: pressing Jump would otherwise break the seat weld and let them wander off
--- mid-game, effectively quitting without ever going through the match's own ejection flow.
+-- Living participants stay seated. Eliminated spectators regain jumping and may release their table immediately.
+table.insert(globalConnections, leaveSpectatorRemote.OnServerEvent:Connect(function(player, matchId, ...)
+	if select("#", ...) ~= 0 or type(matchId) ~= "string" or #matchId > 64 then return end
+	if not allowRemote(player, "LeaveSpectator", 0.2) then return end
+	tables:LeaveSpectator(player, matchId)
+end))
 local jumpLocked: { [any]: any } = {}
 local seatedNow: { [any]: boolean } = {}
 local function restoreJump(lock: any)
@@ -1419,7 +1429,8 @@ local function updateSeatJumpLocks()
 	for _, record in tables.Records do
 		local activeMatch = record.Match ~= nil and record.Match.Players ~= nil
 		for _, player in world:Occupants(record) do
-			if activeMatch then
+			local index = activeMatch and table.find(record.Match.Players, player)
+			if index and record.Match.Hearts[index] > 0 and not record.Match.Departed[index] then
 				seatedNow[player] = true
 				local character = player.Character
 				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -1458,6 +1469,7 @@ table.insert(
 		local elapsed = accumulated
 		accumulated = 0
 		seatsDirty = false
+		waterRespawn:Step(elapsed)
 		npcPopulation:Step(elapsed)
 		dismissOrphanedBots()
 		tables:Tick()

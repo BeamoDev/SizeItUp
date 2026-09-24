@@ -2,14 +2,14 @@
 -- The troll effects a watcher can set off besides ink: Lag, FogBank and Wobble. The server puts one event
 -- (InkSplat with a Kind) in every player's snapshot for a few seconds; everyone in the match sees it, the thrower too.
 -- Purely visual: nothing is Active (the slider, Lock In and dragging keep working), nothing reveals the answer, and the
--- shapes all come from the screen's shorter side. Wobble is a gentle camera roll (Sway) applied by CameraController.
+-- shapes all come from the screen's shorter side. Wobble's spin and sway are applied by CameraController.
 --   Lag        seeded "lag spikes": the camera freezes (Frozen, applied by CameraController) while the mystery
 --              model glitches -- it jumps to a new size about 14 times a second, its white outline flickers magenta /
 --              cyan / green with a coloured fill, and input seems to stop until the spike ends and the model snaps
 --              back (Glitch, drawn by PreviewController; the real guess never changes). Between spikes the outline
 --              keeps a faint pulsing cyan tint. The authored Game.Lagging frame is shown via Sabotage.Active.
 --   FogBank    fog that keeps thickening until, near the end, nothing can be seen (never blocks input)
---   Wobble     the camera slowly rolls a full 360 degrees over the whole effect
+--   Wobble     accelerating double spin, elastic swings, neon vortex rings and orbiting sparks
 local Sabotage = {}
 Sabotage.__index = Sabotage
 
@@ -78,7 +78,7 @@ function Sabotage.Build(self: any, kind: string, seed: number, duration: number?
 	banner.Position, banner.Size = UDim2.fromScale(0.5, 0.42), UDim2.fromScale(0.8, 0.18)
 	banner.Font, banner.TextScaled = Enum.Font.GothamBlack, true
 	banner.ZIndex = 10
-	banner.Text = if kind == "Lag" then "LAG ATTACK!" elseif kind == "FogBank" then "LOST IN THE FOG!" else "WHEEE!"
+	banner.Text = if kind == "Lag" then "LAG ATTACK!" elseif kind == "FogBank" then "LOST IN THE FOG!" else "SPIN CYCLE!"
 	banner.TextColor3, banner.TextStrokeColor3, banner.TextStrokeTransparency = Color3.new(1, 1, 1), Color3.new(0, 0, 0), 0
 	banner.Parent = frame
 	table.insert(self.Parts, { Kind = "Banner", Node = banner, Tilt = random:NextNumber(-5, 5) })
@@ -172,7 +172,28 @@ function Sabotage.Build(self: any, kind: string, seed: number, duration: number?
 			})
 		end
 	elseif kind == "Wobble" then
-		for index = 1, 16 do
+		for index = 1, self.D.Config.WobbleRings do
+			local ring = Instance.new("Frame")
+			ring.Name, ring.AnchorPoint, ring.BackgroundTransparency, ring.Active = "VortexRing", Vector2.new(0.5, 0.5), 1, false
+			ring.ZIndex, ring.Parent = 2, frame
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius, corner.Parent = UDim.new(0.5, 0), ring
+			local stroke = Instance.new("UIStroke")
+			stroke.Color, stroke.Parent = Color3.new(1, 1, 1), ring
+			local gradient = Instance.new("UIGradient")
+			gradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, GLITCH_CYAN),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(195, 75, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 215, 80)),
+			})
+			gradient.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.45, 0.8),
+				NumberSequenceKeypoint.new(0.65, 1), NumberSequenceKeypoint.new(1, 0),
+			})
+			gradient.Parent = stroke
+			table.insert(self.Parts, { Kind = "VortexRing", Node = ring, Stroke = stroke, Gradient = gradient, Phase = index / self.D.Config.WobbleRings })
+		end
+		for index = 1, self.D.Config.WobbleStars do
 			local star = Instance.new("TextLabel")
 			star.Name, star.AnchorPoint, star.BackgroundTransparency, star.BorderSizePixel, star.Active =
 				"SpinStar", Vector2.new(0.5, 0.5), 1, 0, false
@@ -185,7 +206,7 @@ function Sabotage.Build(self: any, kind: string, seed: number, duration: number?
 				Kind = "SpinStar",
 				Node = star,
 				Phase = random:NextNumber(0, math.pi * 2),
-				Radius = random:NextNumber(0.34, 0.56),
+				Radius = random:NextNumber(0.3, 0.65),
 				Size = random:NextNumber(0.035, 0.075),
 			})
 		end
@@ -218,11 +239,21 @@ function Sabotage.Layout(self: any, age: number, fade: number, viewport: Vector2
 			node.Size = UDim2.fromOffset(part.Width * viewport.X, math.max(5, u * 0.018))
 			node.Position = UDim2.fromScale((part.X + episode * 0.037) % 0.94, part.Y)
 			node.BackgroundTransparency = 1 - fade * 0.72
+		elseif part.Kind == "VortexRing" then
+			local cycle = (age * 0.38 + part.Phase) % 1
+			local diameter = u * (0.65 + cycle * 1.25)
+			node.Position = UDim2.fromScale(0.5 + math.sin(age * 2) * 0.025, 0.5 + math.cos(age * 2.3) * 0.025)
+			node.Size = UDim2.fromOffset(diameter, diameter * (0.84 + 0.1 * math.sin(age * 2 + part.Phase * 6)))
+			node.Rotation = age * 65 + part.Phase * 180
+			part.Gradient.Rotation = -age * 110 + part.Phase * 360
+			part.Stroke.Thickness = math.max(2, u * 0.012 * (1 - cycle))
+			part.Stroke.Transparency = 1 - fade * math.sin(cycle * math.pi) * 0.75
 		elseif part.Kind == "SpinStar" then
-			local angle = part.Phase + progress * math.pi * 6
-			local radius = part.Radius * (0.75 + 0.25 * math.sin(progress * math.pi))
-			node.Size = UDim2.fromOffset(part.Size * u, part.Size * u)
-			node.Position = UDim2.fromScale(0.5 + math.cos(angle) * radius, 0.5 + math.sin(angle) * radius * 0.72)
+			local angle = part.Phase + age * 2.8 + math.sin(age * 1.3) * 0.55
+			local radius = part.Radius * (0.88 + 0.12 * math.sin(age * 3 + part.Phase))
+			local size = part.Size * u * (1 + 0.22 * math.sin(age * 5 + part.Phase))
+			node.Size = UDim2.fromOffset(size, size)
+			node.Position = UDim2.fromOffset(viewport.X * 0.5 + math.cos(angle) * radius * u, viewport.Y * 0.5 + math.sin(angle) * radius * u)
 			node.Rotation = math.deg(angle) * 1.5
 			node.TextTransparency, node.TextStrokeTransparency = 1 - fade * 0.9, 1 - fade * 0.9
 		end
@@ -318,6 +349,7 @@ function Sabotage.Clear(self: any)
 	end
 	self.Gui, self.Root, self.Kind, self.Id, self.ReleasedAt, self.Event = nil, nil, nil, nil, nil, nil
 	self.Parts = {}
+	self.SwayEvent, self.Fade = nil, 0
 end
 
 local function envelope(event: any, now: number): number
@@ -384,8 +416,8 @@ function Sabotage.Step(self: any, snapshot: any, now: number)
 	end
 end
 
--- Camera roll in radians for Wobble (0 otherwise): one smooth, complete 360 degree turn over the whole effect
--- (slow start, slow finish, so it ends exactly upright). An early end eases the roll back out instead of snapping.
+-- Smooth full turns with stronger, layered swings. Natural completion is upright; early release takes the
+-- shortest path back instead of unwinding several rotations in a fraction of a second.
 function Sabotage.Sway(self: any, now: number): number
 	local event = self.SwayEvent
 	if not event then
@@ -395,9 +427,13 @@ function Sabotage.Sway(self: any, now: number): number
 	local at = math.min(now, self.ReleasedAt or now)
 	local progress = clamp01((at - event.StartedAt) / total)
 	local eased = progress * progress * (3 - 2 * progress)
-	local angle = math.pi * 2 * eased + math.sin(progress * math.pi) * math.sin(progress * math.pi * 8) * math.rad(11)
+	local direction = if (event.Seed or 0) % 2 == 0 then 1 else -1
+	local swing = math.sin(progress * math.pi) ^ 2
+		* (math.sin(progress * math.pi * 12) + 0.35 * math.sin(progress * math.pi * 22))
+	local angle = direction * (math.pi * 2 * self.D.Config.WobbleTurns * eased + swing * math.rad(self.D.Config.WobbleSwingDegrees))
 	if self.ReleasedAt and progress < 1 then
-		angle *= self.Fade
+		local release = clamp01((now - self.ReleasedAt) / RELEASE_SECONDS)
+		angle = math.atan2(math.sin(angle), math.cos(angle)) * (1 - release * release * (3 - 2 * release))
 	end
 	return angle
 end

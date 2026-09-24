@@ -17,7 +17,8 @@ function MatchService.new(config: any, rounds: any, currency: any, adapters: any
 end
 function MatchService.Publish(self: any, match: any)
 	for _, player in match.Players do
-		self.Adapters.Send(player, self:Snapshot(match, player))
+		-- A released spectator may already be in another match. Old results must never reclaim their HUD.
+		if self.ByPlayer[player] == match then self.Adapters.Send(player, self:Snapshot(match, player)) end
 	end
 	self.Adapters.StateChanged(match)
 end
@@ -257,7 +258,7 @@ function MatchService.AdvanceTurn(self: any, match: any, now: number)
 				match.StartingHearts
 			)
 			match.Hearts[owner] = hearts
-			-- A pet only earns a free hint charge; the scan starts when the player presses Hint.
+			-- A pet only earns a free hint charge; the exact-size highlight starts when the player presses Hint.
 			match.FreeHint = hint == true
 			if shield then
 				match.PetState[owner].Shield = true
@@ -342,25 +343,14 @@ end
 function MatchService.GrantHint(self: any, match: any, now: number)
 	match.HintUsed = true
 	match.HintCount = (match.HintCount or 0) + 1
-	-- Freeze a broad clue at activation. The answer and numeric bounds never leave the server.
-	local guess, actual = match.Guesses[match.ActiveIndex], match.CurrentObjectPair.Actual
-	local errorRatio = math.abs(guess - actual) / actual
-	local guidance = if errorRatio <= (self.Config.HintCloseTolerance or 0.2)
-		then "Close"
-		elseif guess < actual then "Bigger"
-		else "Smaller"
+	-- Purchased credits and pet hints grant the same exact-size visual. Snapshot sends this only to the active owner.
 	match.ActiveHint = {
 		Id = self.Adapters.NewId(),
-		Guidance = guidance,
+		Actual = match.CurrentObjectPair.Actual,
 		StartedAt = now,
 		ExpiresAt = math.min(match.Deadline, now + (self.Config.HintSeconds or 10)),
 	}
-	-- Both pet-earned and purchased hints reach this function. Publish the same readable clue as a private
-	-- notice as well as the arena scan/header, so an authored HUD transition cannot make either source look inert.
-	local clue = self.Config.HintMessages and self.Config.HintMessages[guidance]
-	if clue then
-		self:Notice(match, match.ActiveIndex, clue.Body or clue.Title or guidance, "Help")
-	end
+	self:Notice(match, match.ActiveIndex, self.Config.HintMessage.Body, "Help")
 end
 -- Sabotage: a watcher sets one of these off on every player's screen in the match (the thrower watches it land too).
 -- Free, limited per watcher per turn, and it never reveals anything about the answer. Different effects run together;
@@ -468,7 +458,7 @@ function MatchService.BuyHint(self: any, player: any, matchId: any, roundId: any
 	then
 		return false
 	end
-	-- Spend and activate without yielding; repeated clicks during a scan cannot charge again.
+	-- Spend and activate without yielding; repeated clicks during a hint cannot charge again.
 	-- A pet-earned free hint is used first and costs nothing.
 	if match.FreeHint then
 		match.FreeHint = false
@@ -1019,6 +1009,7 @@ function MatchService.Snapshot(self: any, match: any, player: any)
 		YourUserId = player.UserId,
 		YourAvatarUserId = avatarUserId(player),
 		Eliminated = match.Hearts[own] <= 0,
+		CanLeaveSpectating = not match.Finished and match.Hearts[own] <= 0 and not match.Departed[own],
 		Prize = match.Prize,
 		Participants = {},
 		TurnId = match.TurnId,

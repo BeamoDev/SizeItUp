@@ -61,25 +61,33 @@ function ReactionController.Step(self: any, entry: any?, character: Model?)
 		self:Clear()
 		return
 	end
+	if not character then
+		local player = self.Players:GetPlayerByUserId(entry.UserId)
+		character = player and player.Character
+	end
+	if character and (not character:IsDescendantOf(self.World) or character:FindFirstAncestorWhichIsA("WorldModel")) then
+		character = nil
+	end
 	local key = tostring(entry.UserId) .. "@" .. tostring(entry.Index)
 	if key ~= self.Key then
 		self:Clear()
 		self.Key = key
-		if not character then
-			local player = self.Players:GetPlayerByUserId(entry.UserId)
-			character = player and player.Character
-		end
-		if character then
-			local highlight = Instance.new("Highlight")
-			highlight.Name, highlight.Adornee = "ScaleReactionFlash", character
-			highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-			highlight.FillTransparency, highlight.OutlineTransparency = 1, 1
-			highlight.Parent = character
-			self.Highlight = highlight
-		end
 		local label = ensureIcon(self)
 		label.Image = if entry.Delta ~= 0 then HEART_ICON else SAFE_ICON
 		label.Size = UDim2.new()
+	end
+	-- A live rig may replicate after this reaction slot starts. Rebind the visual without restarting its timeline.
+	if self.Highlight and self.Highlight.Adornee ~= character then
+		self.Highlight:Destroy()
+		self.Highlight = nil
+	end
+	if character and not self.Highlight then
+		local highlight = Instance.new("Highlight")
+		highlight.Name, highlight.Adornee = "ScaleReactionFlash", character
+		highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+		highlight.FillTransparency, highlight.OutlineTransparency = 1, 1
+		highlight.Parent = character
+		self.Highlight = highlight
 	end
 	local beats = entry.Beats
 	local age = entry.SlotAge

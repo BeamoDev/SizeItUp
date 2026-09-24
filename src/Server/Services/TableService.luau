@@ -87,6 +87,23 @@ function TableService.Release(self: any, record: any, player: any, completion: a
 		self.Adapters.Send(player, { State = "IDLE", Completion = completion, Deadline = if completion then self.Adapters.Now()+self.Config.CompletionSeconds else nil })
 	end
 end
+function TableService.LeaveSpectator(self: any, player: any, matchId: string): boolean
+	-- Bot reuse is owned by population/practice cleanup after the original match finishes.
+	if typeof(player) == "table" and player.IsBot then return false end
+	local record = self.Owners[player]
+	local match = record and record.Match
+	if not match or match.MatchId ~= matchId or match.Finished or self.Matches.ByPlayer[player] ~= match then return false end
+	local index = table.find(match.Players, player)
+	if not index or match.Hearts[index] > 0 then return false end
+	-- Keep the immutable match roster/score indices, but release every live ownership claim immediately.
+	match.Departed[index] = true
+	self.Matches.ByPlayer[player] = nil
+	local seatedIndex = table.find(record.Players, player)
+	if seatedIndex then table.remove(record.Players, seatedIndex) end
+	self.Adapters.Eject(record, player)
+	self:Release(record, player)
+	return true
+end
 function TableService.CleanupMatch(self: any, match: any)
 	local record = match.Table
 	record.Match = nil
@@ -138,12 +155,16 @@ function TableService.Update(self: any, record: any)
 	if record.Match then
 		local match = record.Match
 		for player in present do
-			if not table.find(match.Players, player) then self.Adapters.Eject(record, player) end
+			local index = table.find(match.Players, player)
+			if not index or match.Departed[index] or self.Matches.ByPlayer[player] ~= match then self.Adapters.Eject(record, player) end
 		end
 		if not self.Adapters.Valid(record) then self.Matches:Cancel(match, "Cancelled: seats removed")
 		else
 			local missing = {};for index, player in match.Players do missing[index] = not present[player] end
 			if table.find(missing, true) then self.Matches:Forfeit(match, missing) end
+			for index, player in match.Players do
+				if missing[index] and match.Hearts[index] <= 0 then self:LeaveSpectator(player, match.MatchId) end
+			end
 		end
 		return
 	end

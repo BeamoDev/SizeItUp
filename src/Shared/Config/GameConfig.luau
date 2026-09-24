@@ -6,6 +6,17 @@ local config = {
 	-- receive a real positive AvatarUserId so their portraits look like ordinary players.
 	BotUserIdCeiling = -900000000,
 	BotMugshotImage = "rbxassetid://119109062685227",
+	BotPortraitDistanceScale = 1.2,
+	WaterRespawn = {
+		BotCheckSeconds = 0.2,
+		BotSurfaceMargin = 0.2,
+		BotSweepMaxStuds = 24,
+		LandingClearance = 0.4,
+		LandingSearchUp = 12,
+		LandingSearchDown = 32,
+		RepeatWindowSeconds = 8,
+		RepeatRadiusStuds = 12,
+	},
 	NPCPopulation = {
 		Enabled = true,
 		TargetVisiblePopulationMin = 12, -- chosen once per server; one real player therefore gets 11-14 NPCs
@@ -25,6 +36,8 @@ local config = {
 		WalkDeceleration = 18,
 		WaypointVariation = 0.45,
 		PathRetries = 3,
+		WaypointTimeoutSeconds = 8,
+		WaterRecoveryPauseSeconds = 1,
 		RouteBendChance = 0.72,
 		WaypointPauseChance = 0.13,
 		LocalStrollChance = 0.34,
@@ -32,6 +45,8 @@ local config = {
 		RunawaySpeed = 55,
 		RunawayFallDistance = 40,
 		RunawayRadius = 350,
+		DriftSpeed = 2, -- sustained motion without walking input, below the runaway-speed threshold
+		DriftSeconds = 2,
 		HumanTableJoinChance = 1,
 		HumanTableJoinDelayMin = 0,
 		HumanTableJoinDelayMax = 0,
@@ -108,21 +123,29 @@ local config = {
 	-- on the server per effect (never past the turn; a Long Ink pet adds its seconds on top).
 	InkSplatMinSeconds = 12,
 	InkSplatSeconds = 18,
+	SabotageVisuals = {
+		CuePauseSeconds = 0.45,
+		InkDrainSeconds = 1.2,
+		InkDrainScreenHeights = 1.15,
+		WobbleTurns = 2,
+		WobbleSwingDegrees = 32,
+		WobbleStars = 24,
+		WobbleRings = 4,
+	},
 	HintCash = 0, -- hints are Robux-based (no Cash deduction); a product will set the price
 	HintSeconds = 10,
-	HintCloseTolerance = 0.20, -- Broad guidance, never a precision answer finder.
-	HintMessages = {
-		Bigger = { Title = "TRY BIGGER", Body = "Your guess looked too small. Try making it bigger!" },
-		Smaller = { Title = "TRY SMALLER", Body = "Your guess looked too big. Try making it smaller!" },
-		Close = { Title = "IN THE BALLPARK!", Body = "Your guess was in the right ballpark. Trust your eyes!" },
-	},
+	HintMessage = { Title = "EXACT SIZE", Body = "The yellow highlight shows the exact size!" },
+	HintColor = { 255, 222, 80 },
+	HintModelTransparency = 0.82,
+	HintFillTransparency = 0.75,
+	HintOutlineTransparency = 0,
 	HeartCash = 0, -- Unused while Bootstrap wires SpendHeartCredit: a lost heart is bought back with the Robux Refill Heart product.
 	SharpEyeAccuracy = 90, -- Sharp Eye pets pay out on guesses at or above this accuracy.
 	GreatGuessAccuracy = 97, -- Every player (not only Sharp Eye pet owners) earns a small Cash bonus at or above this accuracy.
 	GreatGuessCash = 15,
 	SabotagesPerTurn = 3, -- Sabotage buttons stay on screen; a watcher can use them this many times per turn, one effect at a time.
 	BotSabotageChancePerHumanTurn = 0.005, -- At most one watching bot rolls this once per human turn (0.5%).
-	MaxHints = 4, -- Hints are repeatable after each scan expires, up to this many purchases per turn.
+	MaxHints = 4, -- Hints are repeatable after each highlight expires, up to this many purchases per turn.
 	ComboAccuracyThreshold = 90, -- "Within 10%" of the answer: a round counts toward the combo streak at or above this accuracy.
 	ComboBonusThreshold = 3, -- Consecutive within-10% rounds needed before the combo starts paying a bonus.
 	ComboBonusStep = 0.15, -- +15% Cash per combo point beyond the threshold.

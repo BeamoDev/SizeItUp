@@ -73,7 +73,7 @@ function UIController.new(playerGui: PlayerGui,config: any,starterGui: StarterGu
  self.HintPanel=card(gui,"SizeHintAnnouncement",UDim2.fromScale(0.29,0.255),UDim2.fromScale(0.42,0.115))
  self.HintPanel.Visible=false;self.HintPanel.BackgroundColor3=Color3.fromRGB(57,39,13)
  self.HintTitle=Style.Text(self.HintPanel,"Title","SIZE HINT",UDim2.fromScale(0.92,0.3),UDim2.fromScale(0.04,0.04),20)
- self.HintGuidance=Style.Text(self.HintPanel,"Guidance","A LITTLE NUDGE",UDim2.fromScale(0.92,0.44),UDim2.fromScale(0.04,0.34),26)
+ self.HintGuidance=Style.Text(self.HintPanel,"Guidance",config.HintMessage.Title,UDim2.fromScale(0.92,0.44),UDim2.fromScale(0.04,0.34),26)
  self.HintProgress=Style.Frame(self.HintPanel,"TimeRemaining",UDim2.fromScale(0.92,0.045),UDim2.fromScale(0.04,0.9),Color3.fromRGB(255,222,80),0)
  self.HintMotion=Style.Node(self.HintPanel,"HintMotionScale","UIScale");self.HintMotion.Parent=self.HintPanel
  self.PlayerGui,self.StarterGui,self.HiddenGuis,self.HiddenCore=playerGui,starterGui,{},{}
@@ -602,10 +602,9 @@ function UIController.TickHint(self: any,s: any,now: number)
  local remaining=math.max(0,hint.ExpiresAt-now)
  local age=math.max(0,now-(hint.StartedAt or hint.ExpiresAt-(self.Config.HintSeconds or 10)))
  local opacity=math.min(1,age/0.7,remaining/0.8)
- local clue=self.Config.HintMessages[hint.Guidance] or self.Config.HintMessages.Close
- local color=Color3.fromRGB(255,222,80)
+ local color=Color3.fromRGB(table.unpack(self.Config.HintColor))
  self.HintTitle.Text=string.format("SIZE HINT / %.1fs",remaining)
- self.HintGuidance.Text=clue.Title
+ self.HintGuidance.Text=self.Config.HintMessage.Title
  self.HintGuidance.TextColor3=color;self.HintProgress.BackgroundColor3=color
  self.HintProgress.Size=UDim2.fromScale(0.92*math.clamp(remaining/(self.Config.HintSeconds or 10),0,1),0.045)
  self.HintProgress.BackgroundTransparency=1-opacity

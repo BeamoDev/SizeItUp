@@ -238,8 +238,8 @@ function UI.Paint(self: any,s: any,now: number?)
 		local hint=s.CanGuess and s.Hint
 		local activeHint=false
 		if hint and now and now<hint.ExpiresAt and now<(s.Deadline or math.huge) then
-			local clue=self.Config.HintMessages[hint.Guidance] or self.Config.HintMessages.Close
-			self:Message(clue.Title,clue.Body,Color3.fromRGB(255,222,80))
+			local message=self.Config.HintMessage
+			self:Message(message.Title,message.Body,Color3.fromRGB(table.unpack(self.Config.HintColor)))
 			messageUntil=(hint.StartedAt or now)+Style.HeaderMessageSeconds
 			activeHint=true
 		end

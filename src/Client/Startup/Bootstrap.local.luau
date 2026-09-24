@@ -144,16 +144,12 @@ local function start()
 		-- Ink, troll effects and hint ranges draw inside the authored HUD.Effects frame when it exists.
 		Effects=function() local hud=require(Controllers.AuthoredUI).HUD;return hud and hud:FindFirstChild("Effects") end,
 		ModeVote=remotes:WaitForChild(Names.ModeVote),ModeVoteView=require(Controllers.ModeVoteView),
+		LeaveSpectator = remotes:WaitForChild(Names.LeaveSpectator),
 		InkSplat = remotes:WaitForChild(Names.InkSplat), InkSplatController = require(Controllers.InkSplatController), SabotageController = require(Controllers.SabotageEffectController),
 		UIController = require(Controllers.UIController), ScaleController = require(Controllers.ScaleController),
 		PreviewController = require(Controllers.PreviewController), CameraController = require(Controllers.CameraController),
 		ReactionController = require(Controllers.ReactionController), ReactionCycle = require(Controllers.ReactionCycle),
 		TransitionController = require(Controllers.TransitionController),
-	})
-	local seatGuide = require(Controllers.NewPlayerSeatGuide).new({
-		Player = player, Storage = Storage, World = workspace,
-		RunService = game:GetService("RunService"), CollectionService = game:GetService("CollectionService"),
-		Config = config,
 	})
 	local afkSign = require(Controllers.AFKSignController).new(workspace, game:GetService("RunService"))
 	local eggTags = require(Controllers.EggTagController).new(workspace, game:GetService("RunService"))
@@ -209,7 +205,7 @@ local function start()
 		if alerts then alerts:Destroy() end
 		if haptic then haptic:Destroy() end
 		eggStandPreviews:Destroy()
-		seatGuide:Destroy();afkSign:Destroy();eggTags:Destroy();chairTags:Destroy();cashPrivacy:Destroy();titleShimmer:Destroy();invites:Destroy();displayConnection:Disconnect();spectatorDisplay:Destroy();followers:Destroy();controller:Destroy();inventory:Destroy()
+		afkSign:Destroy();eggTags:Destroy();chairTags:Destroy();cashPrivacy:Destroy();titleShimmer:Destroy();invites:Destroy();displayConnection:Disconnect();spectatorDisplay:Destroy();followers:Destroy();controller:Destroy();inventory:Destroy()
 	end)
 	bootstrapReady = true
 end

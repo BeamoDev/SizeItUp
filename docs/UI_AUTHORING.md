@@ -18,9 +18,11 @@ In the state layout, `AdjustingSize.Upper.Header.Title/Sub` carries messages, Lo
 
 In compact layout, TimeLeft and Profile are optional; Profile stays hidden and Header.Paragraph owns the countdown. Match start hides lobby menus; simply sitting at a table must retain lobby currency/navigation. InventoryController keeps presentation separate from Busy action restrictions.
 
+Paid, saved-credit and pet hints all show the same local exact-size yellow highlighted mystery clone. Existing hint/header labels explain the yellow highlight; do not show Bigger/Smaller/Close advice. The clone uses the shared display scale and mystery floor/left edge, participates in camera framing, and disappears on expiry or leaving the guessing turn. The mystery ruler remains ???m while guessing.
+
 ## New-player seat guide
 
-The old `HUD.Tutorial` flow is unused and removed from the local HUD. `ReplicatedStorage.Assets.Tutorial` only supplies `TutorialBeam` and the `HoverArrow` BillboardGui. `NewPlayerSeatGuide` points profiles with zero matches to a free seat on an available 1v1 table, positions the arrow three studs over the table surface, and destroys every local clone and attachment once the player sits.
+The tutorial seat guide, beam and red arrow are removed. Existing tutorial asset templates are unused; the client does not clone them or run a first-match guidance controller.
 
 Rulers bind under Game.ReferenceSizes when present, otherwise Game. MeasurementUI owns the narrow ruler-repair exception: reuse/repair ReferenceMeasurement and MysteryMeasurement, ObjectName, RealHeight/UnknownHeight/EstimatedHeight, TopCap/BottomCap and HeightDot1-64. The dots render as bold white rounded vertical segments with black outlines; wider outlined caps mark the projected top and floor. ObjectName sits above the measurement, and a result PlayerMugshot sits below that text before the top cap. The entire ruler layer uses ZIndex 0 so authored HUD panels always cover it; it does not move to avoid those panels. Caption and marker sizes scale down from the live viewport on phones, stay clamped inside the screen top/side edges, and only the two ruler caption stacks attempt to separate from each other. Use public names and post-camera projection; follow phase privacy rules in AGENTS. Do not rebuild other deleted gameplay panels.
 
@@ -55,6 +57,8 @@ Viewport cameras, WorldModels, preview stages and selected/reward clones are run
 ## Motion and cleanup
 
 GameHUDMotion owns gameplay panel entrances/exits; LobbyHUDView owns lobby motion; FrameSlide handles menu roots; TransitionController owns BlackWipe. Respect motion ownership attributes to avoid competing animations. Disable input immediately on exit, hide roots when exits finish, and restore resting poses on teardown. Repeated snapshots use server-relative ages and must not restart reveals/reactions/effects.
+
+OtherPlayerGuessing's authored sabotage buttons reuse HintWobble for one random shake/pop at a time while purchasing is available. MatchController owns this selection in its existing render loop and resets each button on disable/teardown. Existing gameplay controls named Exit/ExitButton/Leave/LeaveButton can request the same eliminated-spectator departure as Jump; no exit control is generated. The server confirms departure before the client clears the match presentation.
 
 Keep short player-facing messages, existing gradients, rarity colors and template labels. Level-only updates change labels/XP fills without rebuilding viewports. Clear hover/drag/effects on lock, deadline, focus loss, menu opening, respawn and teardown. World billboards and local models are separate from the authored screen hierarchy; preserve source templates and destroy only controller-owned copies.
 

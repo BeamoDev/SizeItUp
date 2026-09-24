@@ -447,8 +447,6 @@ function EconomyRuntime.Add(self: any, player: Player)
 	self.Inventory:AddPlayer(player)
 	self.ShopClaims[player] = { Token = self.D.Http:GenerateGUID(false), Next = 0 }
 	self:Sync(player)
-	-- Profiles with no completed match get only a local beam/arrow toward an open duel seat.
-	player:SetAttribute("NewPlayerSeatGuide", (data.Matches or 0) == 0)
 	player:SetAttribute("DataReady", true)
 	if data.PendingTransfer then
 		task.spawn(function()
