@@ -1,135 +1,18 @@
 {
   "Version": 1,
+  "PlaceId": 97619904048927,
   "RuntimeRoots": {
-    "GClient": {
-      "Source": "src/GClient",
-      "Destination": "StarterPlayer.StarterPlayerScripts.GClient"
+    "Client": {
+      "Source": "src/Client",
+      "Destination": "StarterPlayer.StarterPlayerScripts.Client"
     },
-    "GServer": {
-      "Source": "src/GServer",
-      "Destination": "ServerScriptService.GServer"
+    "Server": {
+      "Source": "src/Server",
+      "Destination": "ServerScriptService.Server"
     },
-    "GShared": {
-      "Source": "src/GShared",
-      "Destination": "ReplicatedStorage.GShared"
-    },
-    "LClient": {
-      "Source": "src/LClient",
-      "Destination": "StarterPlayer.StarterPlayerScripts.LClient"
-    },
-    "LServer": {
-      "Source": "src/LServer",
-      "Destination": "ServerScriptService.LServer"
-    },
-    "LShared": {
-      "Source": "src/LShared",
-      "Destination": "ReplicatedStorage.LShared"
+    "Shared": {
+      "Source": "src/Shared",
+      "Destination": "ReplicatedStorage.Shared"
     }
-  },
-  "CommonModules": [
-    {
-      "Source": "common/CommonServer/PlayerData/DataService.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/PlayerData/DataService.luau",
-        "src/LServer/PlayerData/DataService.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/PlayerData/PlayerView.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/PlayerData/PlayerView.luau",
-        "src/LServer/PlayerData/PlayerView.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/PlayerData/ProfileSchema.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/PlayerData/ProfileSchema.luau",
-        "src/LServer/PlayerData/ProfileSchema.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/PlayerData/ProfileStore.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/PlayerData/ProfileStore.luau",
-        "src/LServer/PlayerData/ProfileStore.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Networking/NetworkService.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Networking/NetworkService.luau",
-        "src/LServer/Networking/NetworkService.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Networking/RateLimiter.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Networking/RateLimiter.luau",
-        "src/LServer/Networking/RateLimiter.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Configuration/ServerConfig.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Configuration/ServerConfig.luau",
-        "src/LServer/Configuration/ServerConfig.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Travel/AdmissionRules.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Travel/AdmissionRules.luau",
-        "src/LServer/Travel/AdmissionRules.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Travel/TicketStore.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Travel/TicketStore.luau",
-        "src/LServer/Travel/TicketStore.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonServer/Travel/TravelService.luau",
-      "Group": "Server",
-      "Targets": [
-        "src/GServer/Travel/TravelService.luau",
-        "src/LServer/Travel/TravelService.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonClient/Interface/SettingsAudio.luau",
-      "Group": "Client",
-      "Targets": [
-        "src/GClient/Interface/SettingsAudio.luau",
-        "src/LClient/Interface/SettingsAudio.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonClient/Interface/SettingsController.luau",
-      "Group": "Client",
-      "Targets": [
-        "src/GClient/Interface/SettingsController.luau",
-        "src/LClient/Interface/SettingsController.luau"
-      ]
-    },
-    {
-      "Source": "common/CommonClient/Interface/SettingsView.luau",
-      "Group": "Client",
-      "Targets": [
-        "src/GClient/Interface/SettingsView.luau",
-        "src/LClient/Interface/SettingsView.luau"
-      ]
-    }
-  ]
+  }
 }

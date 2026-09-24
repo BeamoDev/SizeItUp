@@ -1,0 +1,9 @@
+{
+  "Version": 1,
+  "PlaceId": 95238940314216,
+  "RuntimeRoots": {
+    "AFKClient": { "Source": "src/AFKClient", "Destination": "StarterPlayer.StarterPlayerScripts.AFKClient" },
+    "AFKServer": { "Source": "src/AFKServer", "Destination": "ServerScriptService.AFKServer" },
+    "AFKShared": { "Source": "src/AFKShared", "Destination": "ReplicatedStorage.AFKShared" }
+  }
+}

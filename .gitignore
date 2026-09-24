@@ -1,17 +1,3 @@
-# Keep Script Sync source and repository documentation at the project root.
-/*
-!/.gitattributes
-!/.gitignore
-!/.github/
-!/AGENTS.md
-!/README.md
-!/docs/
-!/tests/
-!/src/
-!/common/
-!/tools/
-!/project.sources.json
-
 # Operating-system and editor files
 .DS_Store
 Thumbs.db
@@ -38,6 +24,7 @@ Desktop.ini
 *.rbxlx.lock
 
 # Generated output and local dependencies
+.tools/
 node_modules/
 dist/
 build/
